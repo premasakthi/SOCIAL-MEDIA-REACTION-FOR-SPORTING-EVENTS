@@ -1,0 +1,138 @@
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(readr)
+library(DT)
+library(plotly)
+
+# Load Data
+df <- read_csv("C:\\Users\\Admin\\Downloads\\fifa_world_cup_2022_tweets.csv")
+df$`Date Created` <- as.Date(df$`Date Created`)
+
+# UI
+ui <- dashboardPage(
+  
+  dashboardHeader(title = "FIFA World Cup 2022 Twitter Dashboard"),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Dashboard", tabName = "dashboard", icon = icon("dashboard")),
+      
+      selectInput("sentiment",
+                  "Select Sentiment",
+                  choices = unique(df$Sentiment),
+                  selected = unique(df$Sentiment),
+                  multiple = TRUE),
+      
+      selectInput("chartType",
+                  "Select Chart Type",
+                  choices = c("Sentiment Distribution",
+                              "Tweet Source Distribution",
+                              "Likes Over Time"))
+    )
+  ),
+  
+  dashboardBody(
+    
+    fluidRow(
+      uiOutput("totalTweets"),
+      uiOutput("avgLikes"),
+      uiOutput("maxLikes")
+    ),
+    
+    fluidRow(
+      box(
+        title = "Dynamic Chart",
+        width = 12,
+        status = "primary",
+        solidHeader = TRUE,
+        plotlyOutput("dynamicPlot")
+      )
+    ),
+    
+    fluidRow(
+      box(
+        title = "Tweet Search",
+        width = 12,
+        status = "warning",
+        solidHeader = TRUE,
+        textInput("search", "Search Tweet"),
+        DTOutput("tweetTable")
+      )
+    )
+  )
+)
+
+# SERVER
+server <- function(input, output) {
+  
+  filteredData <- reactive({
+    df %>% filter(Sentiment %in% input$sentiment)
+  })
+  
+  # ✅ KPI VALUE BOXES (FIXED)
+  output$totalTweets <- renderUI({
+    valueBox(nrow(filteredData()), "Total Tweets", icon = icon("twitter"), color = "aqua")
+  })
+  
+  output$avgLikes <- renderUI({
+    valueBox(round(mean(filteredData()$`Number of Likes`, na.rm = TRUE), 2),
+             "Average Likes", icon = icon("thumbs-up"), color = "green")
+  })
+  
+  output$maxLikes <- renderUI({
+    valueBox(max(filteredData()$`Number of Likes`, na.rm = TRUE),
+             "Max Likes", icon = icon("fire"), color = "red")
+  })
+  
+  # ✅ DYNAMIC CHART
+  output$dynamicPlot <- renderPlotly({
+    
+    data <- filteredData()
+    
+    if (input$chartType == "Sentiment Distribution") {
+      
+      p <- data %>%
+        count(Sentiment) %>%
+        plot_ly(labels = ~Sentiment, values = ~n, type = "pie") %>%
+        layout(title = "Sentiment Distribution")
+    }
+    
+    else if (input$chartType == "Tweet Source Distribution") {
+      
+      p <- data %>%
+        count(`Source of Tweet`) %>%
+        plot_ly(x = ~`Source of Tweet`, y = ~n, type = "bar") %>%
+        layout(title = "Tweet Source Distribution")
+    }
+    
+    else {
+      
+      p <- data %>%
+        group_by(`Date Created`) %>%
+        summarise(total_likes = sum(`Number of Likes`, na.rm = TRUE)) %>%
+        plot_ly(x = ~`Date Created`, y = ~total_likes, type = "scatter", mode = "lines") %>%
+        layout(title = "Likes Over Time")
+    }
+    
+    p
+  })
+  
+  # ✅ TWEET TABLE
+  output$tweetTable <- renderDT({
+    data <- filteredData()
+    
+    if (input$search != "") {
+      data <- data %>% filter(grepl(input$search, Tweet, ignore.case = TRUE))
+    }
+    
+    datatable(
+      data[, c("Date Created", "Tweet", "Sentiment", "Number of Likes", "Source of Tweet")],
+      options = list(pageLength = 8)
+    )
+  })
+  
+}
+
+shinyApp(ui, server)
+
